@@ -38,7 +38,7 @@ The web app has a dedicated `Config` tab where you can enter:
 - Request ID
 - Stripe secret key
 
-Those values are stored in browser local storage and sent to the local Next.js API route when you start a detachment run.
+The API endpoint and request ID are stored in browser local storage. The Stripe secret key is not stored there; keep it in memory for the current session or save it with your browser password manager.
 
 You can also keep fallback values in `.env`:
 

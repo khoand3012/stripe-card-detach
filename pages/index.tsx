@@ -1,5 +1,5 @@
 import Head from "next/head";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { SubmitEvent, useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 
 type TabKey = "detach" | "config";
@@ -17,6 +17,8 @@ interface ConfigState {
   requestId: string;
   stripeKey: string;
 }
+
+type StoredConfigState = Pick<ConfigState, "apiUrl" | "requestId">;
 
 const STORAGE_KEY = "detach-pm.config";
 const DEVICE_ID_STORAGE_KEY = "detach-pm.device-id";
@@ -55,6 +57,7 @@ function getLogToneClass(type: LogType) {
 }
 
 export default function HomePage() {
+  const passwordManagerFormRef = useRef<HTMLFormElement | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("detach");
   const [deviceId, setDeviceId] = useState("");
   const [config, setConfig] = useState<ConfigState>(emptyConfig);
@@ -77,9 +80,15 @@ export default function HomePage() {
     }
 
     try {
-      const parsedConfig = JSON.parse(storedConfig) as ConfigState;
-      setConfig(parsedConfig);
-      setConfigStatus("Loaded saved browser-local settings.");
+      const parsedConfig = JSON.parse(storedConfig) as StoredConfigState;
+      setConfig((currentConfig) => ({
+        ...currentConfig,
+        apiUrl: parsedConfig.apiUrl || "",
+        requestId: parsedConfig.requestId || "",
+      }));
+      setConfigStatus(
+        "Loaded API endpoint and request ID from browser storage. Stripe secret key stays out of local storage.",
+      );
     } catch {
       setConfigStatus("Saved settings were invalid and were ignored.");
     }
@@ -108,8 +117,15 @@ export default function HomePage() {
   }
 
   function handleSaveConfig() {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-    setConfigStatus("Settings saved to this browser.");
+    const storedConfig: StoredConfigState = {
+      apiUrl: config.apiUrl,
+      requestId: config.requestId,
+    };
+
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(storedConfig));
+    setConfigStatus(
+      "Saved API endpoint and request ID to this browser. Save the Stripe secret key with your browser password manager instead.",
+    );
   }
 
   function handleSaveDeviceId() {
@@ -130,7 +146,52 @@ export default function HomePage() {
     setConfigStatus("Generated a new request ID.");
   }
 
-  async function handleDetach(event: FormEvent<HTMLFormElement>) {
+  async function handleSaveStripeKey() {
+    const trimmedStripeKey = config.stripeKey.trim();
+
+    if (!trimmedStripeKey) {
+      setConfigStatus("Enter a Stripe secret key before saving it.");
+      return;
+    }
+
+    const credentialsContainer = navigator.credentials as
+      | (CredentialsContainer & {
+          store?: (credential: unknown) => Promise<unknown>;
+        })
+      | undefined;
+    const PasswordCredentialCtor = (
+      window as Window & {
+        PasswordCredential?: new (form: HTMLFormElement) => unknown;
+      }
+    ).PasswordCredential;
+
+    if (
+      !credentialsContainer?.store ||
+      !PasswordCredentialCtor ||
+      !passwordManagerFormRef.current
+    ) {
+      setConfigStatus(
+        "This browser does not support direct password-manager prompts here. Use the password field's save prompt if your browser shows one.",
+      );
+      return;
+    }
+
+    try {
+      const credential = new PasswordCredentialCtor(
+        passwordManagerFormRef.current,
+      );
+      await credentialsContainer.store(credential);
+      setConfigStatus(
+        "Prompted your browser password manager to save the Stripe secret key.",
+      );
+    } catch {
+      setConfigStatus(
+        "Your browser did not accept the password-manager save request. Use the password field's save prompt if available.",
+      );
+    }
+  }
+
+  async function handleDetach(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const trimmedDeviceId = deviceId.trim();
@@ -283,7 +344,9 @@ export default function HomePage() {
                     <p className="mb-2.5 text-[0.82rem] font-bold uppercase tracking-[0.12em] text-accent-deep">
                       Output
                     </p>
-                    <h2 className="m-0 text-[1.6rem] leading-[1.1]">Debug log</h2>
+                    <h2 className="m-0 text-[1.6rem] leading-[1.1]">
+                      Debug log
+                    </h2>
                   </div>
                   <button
                     className={ghostButtonClassName}
@@ -295,7 +358,9 @@ export default function HomePage() {
                 </div>
                 <div className="mt-[18px] flex-1 overflow-auto rounded-[20px] bg-[linear-gradient(180deg,rgba(17,22,34,0.96),rgba(24,31,46,0.98))] p-[18px] font-mono text-[#edf3ff]">
                   {logs.length === 0 ? (
-                    <p className="m-0 text-[rgba(237,243,255,0.6)]">No run output yet.</p>
+                    <p className="m-0 text-[rgba(237,243,255,0.6)]">
+                      No run output yet.
+                    </p>
                   ) : (
                     logs.map((log, index) => (
                       <div
@@ -305,7 +370,9 @@ export default function HomePage() {
                         <span className="whitespace-nowrap text-[rgba(237,243,255,0.52)]">
                           {new Date(log.timestamp).toLocaleTimeString()}
                         </span>
-                        <span className={getLogToneClass(log.type)}>{log.message}</span>
+                        <span className={getLogToneClass(log.type)}>
+                          {log.message}
+                        </span>
                       </div>
                     ))
                   )}
@@ -319,15 +386,37 @@ export default function HomePage() {
                   <p className="mb-2.5 text-[0.82rem] font-bold uppercase tracking-[0.12em] text-accent-deep">
                     Settings
                   </p>
-                  <h2 className="m-0 text-[1.6rem] leading-[1.1]">Execution config</h2>
+                  <h2 className="m-0 text-[1.6rem] leading-[1.1]">
+                    Execution config
+                  </h2>
                 </div>
-                <p className="text-[0.92rem] leading-6 text-muted">{configStatus}</p>
+                <p className="text-[0.92rem] leading-6 text-muted">
+                  {configStatus}
+                </p>
               </div>
-              <div className="grid gap-[18px] pt-2">
+              <form
+                className="grid gap-[18px] pt-2"
+                onSubmit={(event) => event.preventDefault()}
+                ref={passwordManagerFormRef}
+              >
+                <input
+                  aria-hidden="true"
+                  autoComplete="username"
+                  className="hidden"
+                  name="username"
+                  readOnly
+                  tabIndex={-1}
+                  type="text"
+                  value="detach-pm"
+                />
                 <label className="block">
-                  <span className="mb-2.5 mt-6 block text-[0.92rem] font-bold">API endpoint</span>
+                  <span className="mb-2.5 mt-6 block text-[0.92rem] font-bold">
+                    API endpoint
+                  </span>
                   <input
+                    autoComplete="off"
                     className={inputClassName}
+                    name="api-url"
                     value={config.apiUrl}
                     onChange={(event) =>
                       updateConfigValue("apiUrl", event.target.value)
@@ -336,10 +425,14 @@ export default function HomePage() {
                   />
                 </label>
                 <label className="block">
-                  <span className="mb-2.5 mt-6 block text-[0.92rem] font-bold">Request ID</span>
+                  <span className="mb-2.5 mt-6 block text-[0.92rem] font-bold">
+                    Request ID
+                  </span>
                   <div className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
                     <input
+                      autoComplete="off"
                       className={inputClassName}
+                      name="request-id"
                       value={config.requestId}
                       onChange={(event) =>
                         updateConfigValue("requestId", event.target.value)
@@ -356,9 +449,13 @@ export default function HomePage() {
                   </div>
                 </label>
                 <label className="block">
-                  <span className="mb-2.5 mt-6 block text-[0.92rem] font-bold">Stripe secret key</span>
+                  <span className="mb-2.5 mt-6 block text-[0.92rem] font-bold">
+                    Stripe secret key
+                  </span>
                   <input
+                    autoComplete="current-password"
                     className={inputClassName}
+                    name="password"
                     type="password"
                     value={config.stripeKey}
                     onChange={(event) =>
@@ -366,20 +463,22 @@ export default function HomePage() {
                     }
                     placeholder="sk_test_..."
                   />
+                  <span className="mt-2 block text-sm leading-6 text-muted">
+                    This key is not saved to local storage. Use your browser
+                    password manager to save it securely.
+                  </span>
                 </label>
-              </div>
+              </form>
               <div className="mt-6 flex flex-col items-stretch justify-between gap-4 md:flex-row md:items-center">
-                <span className="text-[0.92rem] leading-6 text-muted">
-                  Settings are stored in this browser only and are posted to the
-                  local API route when you run a job.
-                </span>
-                <button
-                  className={primaryButtonClassName}
-                  onClick={handleSaveConfig}
-                  type="button"
-                >
-                  Save settings
-                </button>
+                <div className="flex flex-col gap-3 md:flex-row">
+                  <button
+                    className={primaryButtonClassName}
+                    onClick={handleSaveConfig}
+                    type="button"
+                  >
+                    Save settings
+                  </button>
+                </div>
               </div>
             </section>
           )}
