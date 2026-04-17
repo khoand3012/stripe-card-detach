@@ -1,24 +1,24 @@
 # Detach PM
 
-Node 16-compatible Next.js web app for detaching Stripe payment methods through a browser UI.
+Next.js web app for detaching Stripe payment methods through a browser UI.
 
 ## Stack
 
-- Next.js 13.5.6
-- React 18
+- Next.js 16.2.4
+- React 19.2.0
 - TypeScript
-- Stripe Node SDK 14.25.0
+- Stripe Node SDK 22.0.2
 - Axios
 
 ## Requirements
 
-- Node.js 16.14 or newer
+- Node.js 24
 
 ## Run
 
 ```bash
-npm install
-npm run dev
+yarn install
+yarn dev
 ```
 
 Open `http://localhost:3000`.
@@ -26,8 +26,8 @@ Open `http://localhost:3000`.
 ## Build
 
 ```bash
-npm run build
-npm start
+yarn build
+yarn start
 ```
 
 ## Config
@@ -55,10 +55,9 @@ pages/
    api/detach.ts    Next.js API route for the detach flow
    _app.tsx         Global app wrapper
    index.tsx        Main web UI
-src/
+services/
    cryptography.ts  Encryption helpers
    detach.ts        Server-side detach workflow
 styles/
-   globals.css      Global styles
-   Home.module.css  Page-specific styles
+   globals.css      Tailwind entry and global styles
 ```
